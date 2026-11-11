@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 namespace App\Providers;
 
@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\View;
 use App\Policies\TicketPolicy;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\URL;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -23,7 +24,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Một thể hiện cho mỗi request để ngày nghỉ chỉ được nạp một lần (tránh N+1 khi liệt kê nhiều phiếu).
+        // Má»™t thá»ƒ hiá»‡n cho má»—i request Ä‘á»ƒ ngÃ y nghá»‰ chá»‰ Ä‘Æ°á»£c náº¡p má»™t láº§n (trÃ¡nh N+1 khi liá»‡t kÃª nhiá»u phiáº¿u).
         $this->app->scoped(SlaService::class);
     }
 
@@ -32,20 +33,23 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $this->configureRateLimiting();
+        $this$this->configureRateLimiting();
+        if (config('app.env') === 'production' || env('TRUST_PROXIES')) {
+            URL::forceScheme('https');
+        }
 
         Gate::policy(Ticket::class, TicketPolicy::class);
         Gate::policy(TicketAttachment::class, TicketAttachmentPolicy::class);
 
-        // Số thông báo chưa đọc hiển thị trên thanh điều hướng (K9).
+        // Sá»‘ thÃ´ng bÃ¡o chÆ°a Ä‘á»c hiá»ƒn thá»‹ trÃªn thanh Ä‘iá»u hÆ°á»›ng (K9).
         View::composer('layouts.app', function ($view) {
             $view->with('unreadCount', Auth::check() ? app(NotificationService::class)->unreadCount(Auth::user()) : 0);
         });
     }
 
     /**
-     * Giới hạn tần suất (BM10). Mỗi loại có bộ đếm RIÊNG (khóa khác nhau): với `throttle:N,M` không đặt tên, mọi route dùng chung
-     * một khóa theo IP nên các lượt gọi API đã xác thực làm cạn lượt đăng nhập của cùng địa chỉ.
+     * Giá»›i háº¡n táº§n suáº¥t (BM10). Má»—i loáº¡i cÃ³ bá»™ Ä‘áº¿m RIÃŠNG (khÃ³a khÃ¡c nhau): vá»›i `throttle:N,M` khÃ´ng Ä‘áº·t tÃªn, má»i route dÃ¹ng chung
+     * má»™t khÃ³a theo IP nÃªn cÃ¡c lÆ°á»£t gá»i API Ä‘Ã£ xÃ¡c thá»±c lÃ m cáº¡n lÆ°á»£t Ä‘Äƒng nháº­p cá»§a cÃ¹ng Ä‘á»‹a chá»‰.
      */
     private function configureRateLimiting(): void
     {
@@ -56,7 +60,8 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('change-password', fn (Request $request) => Limit::perMinute(5)->by('chgpw|' . ($request->user()?->id ?? $request->ip())));
         RateLimiter::for('uploads', fn (Request $request) => Limit::perMinute(20)->by('upload|' . ($request->user()?->id ?? $request->ip())));
         RateLimiter::for('cron', fn (Request $request) => Limit::perMinute(12)->by('cron|' . $request->ip()));
-        // API đã xác thực: 60 yêu cầu/phút cho mỗi token (không dùng chung với đăng nhập)
+        // API Ä‘Ã£ xÃ¡c thá»±c: 60 yÃªu cáº§u/phÃºt cho má»—i token (khÃ´ng dÃ¹ng chung vá»›i Ä‘Äƒng nháº­p)
         RateLimiter::for('api-token', fn (Request $request) => Limit::perMinute(60)->by('api|' . ($request->bearerToken() ? hash('sha256', $request->bearerToken()) : $request->ip())));
     }
 }
+
