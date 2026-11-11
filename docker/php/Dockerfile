@@ -1,4 +1,4 @@
-FROM php:8.5-cli
+﻿FROM php:8.5-cli
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git unzip libzip-dev libicu-dev libonig-dev libsqlite3-dev \
@@ -7,8 +7,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www/html
+
+# Copy toàn bộ mã nguồn vào container
+COPY . .
+
 COPY docker/php/entrypoint.sh /usr/local/bin/itam-entrypoint
 RUN chmod +x /usr/local/bin/itam-entrypoint
+COPY docker/php/uploads.ini /usr/local/etc/php/conf.d/uploads.ini
+
 EXPOSE 8000
 ENTRYPOINT ["itam-entrypoint"]
-COPY docker/php/uploads.ini /usr/local/etc/php/conf.d/uploads.ini
