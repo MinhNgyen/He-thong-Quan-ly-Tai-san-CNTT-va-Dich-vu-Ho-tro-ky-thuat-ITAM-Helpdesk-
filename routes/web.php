@@ -109,3 +109,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/reports/{report}/export.csv', [ReportController::class, 'export'])->name('reports.export');
     });
 });
+
+Route::get('/healthz', function () {
+    \Illuminate\Support\Facades\DB::select('SELECT 1');
+    return response()->json(['trangThai' => 'ok'], 200);
+});
