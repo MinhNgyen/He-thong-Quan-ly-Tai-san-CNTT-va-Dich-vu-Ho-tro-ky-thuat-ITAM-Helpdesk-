@@ -1,0 +1,522 @@
+openapi: 3.0.3
+info:
+  title: ITAM & Helpdesk REST API
+  version: "1.1.0"
+  description: >
+    API quản lý phiếu hỗ trợ (ticket) và tài sản CNTT. Xác thực bằng Bearer token
+    (token ngẫu nhiên 48 ký tự, lưu băm SHA-256, hết hạn sau 7 ngày, làm mới bằng
+    /refresh-token với cơ chế luân chuyển). Dữ liệu trao đổi là JSON. Quản lý phiên bản
+    bằng đường dẫn: mọi điểm cuối nằm dưới /api/v1. Lỗi trả về theo một quy ước thống nhất
+    { success: false, message, errors? }. Dữ liệu mẫu chỉ phục vụ mục đích học tập.
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Môi trường cục bộ (Docker Compose)
+  - url: https://example.invalid/api/v1
+    description: Môi trường trực tuyến (thay bằng URL thật của nhóm)
+tags:
+  - name: Internal
+  - name: Auth
+  - name: Tickets
+  - name: Assets
+security:
+  - bearerAuth: []
+paths:
+  /login:
+    post:
+      tags: [Auth]
+      summary: Đăng nhập, nhận Bearer token (giới hạn 5 yêu cầu/phút)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Đăng nhập thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /me:
+    get:
+      tags: [Auth]
+      summary: Thông tin người dùng hiện tại
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/User'}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /logout:
+    post:
+      tags: [Auth]
+      summary: Thu hồi token hiện tại
+      responses:
+        '200':
+          description: Đã đăng xuất
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /refresh-token:
+    post:
+      tags: [Auth]
+      summary: Làm mới token (luân chuyển - cấp token mới, thu hồi token cũ)
+      responses:
+        '200':
+          description: Token mới
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /internal/sla-escalate:
+    post:
+      tags: [Internal]
+      summary: Quét và leo thang phiếu quá hạn SLA (dành cho trình lập lịch bên ngoài)
+      description: >
+        Hosting không có cron/dòng lệnh: dịch vụ lập lịch gọi điểm cuối này mỗi 5 phút. Xác thực bằng khóa bí mật
+        trong tiêu đề X-Cron-Key (biến SLA_CRON_KEY). Chưa cấu hình khóa thì điểm cuối trả 404.
+      security:
+        - cronKey: []
+      responses:
+        '200':
+          description: Số phiếu đã leo thang trong lần quét này
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  message: {type: string}
+                  data:
+                    type: object
+                    properties:
+                      escalated: {type: integer}
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tickets/options:
+    get:
+      tags: [Tickets]
+      summary: Dữ liệu tham chiếu để tạo phiếu (danh mục, mức ưu tiên, tài sản gắn được)
+      responses:
+        '200':
+          description: Thành công
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /tickets:
+    get:
+      tags: [Tickets]
+      summary: Danh sách phiếu theo phạm vi quyền (phân trang 10 bản ghi/trang)
+      parameters:
+        - {name: q, in: query, schema: {type: string}, description: "Tìm theo mã phiếu hoặc tiêu đề"}
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/TicketStatus'}}
+        - {name: page, in: query, schema: {type: integer, minimum: 1}}
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Tickets]
+      summary: Tạo phiếu hỗ trợ (mọi người dùng đã đăng nhập)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketCreate'
+      responses:
+        '201':
+          description: Đã tạo phiếu (trạng thái open)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /tickets/{id}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    get:
+      tags: [Tickets]
+      summary: Chi tiết phiếu, kèm bình luận và lịch sử
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Tickets]
+      summary: Đổi trạng thái (Technician phụ trách) hoặc phân công (Admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketUpdate'
+      responses:
+        '200':
+          description: Đã cập nhật
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Tickets]
+      summary: Như PUT (cập nhật trạng thái / phân công)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketUpdate'
+      responses:
+        '200':
+          description: Đã cập nhật
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /tickets/{id}/comments:
+    post:
+      tags: [Tickets]
+      summary: Thêm bình luận (phiếu đã đóng/hủy bị từ chối)
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: {type: string, maxLength: 5000}
+      responses:
+        '201':
+          description: Đã thêm bình luận
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /tickets/{id}/claim:
+    post:
+      tags: [Tickets]
+      summary: Technician tự nhận phiếu chưa có người xử lý
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: Đã nhận phiếu (chuyển sang assigned)
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Phiếu đã có người nhận trước
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+  /assets:
+    get:
+      tags: [Assets]
+      summary: Danh sách tài sản (Admin, Technician; phân trang 12 bản ghi/trang)
+      parameters:
+        - {name: q, in: query, schema: {type: string}, description: "Tìm theo mã, tên hoặc số serial"}
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/AssetStatus'}}
+        - {name: page, in: query, schema: {type: integer, minimum: 1}}
+      responses:
+        '200':
+          description: Thành công
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Assets]
+      summary: Thêm tài sản (chỉ Admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetInput'
+      responses:
+        '201':
+          description: Đã tạo tài sản
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /assets/{id}/descendants:
+    get:
+      tags: [Assets]
+      summary: Toàn bộ tài sản con cháu (nhiều cấp) của một tài sản - truy vấn đệ quy (Admin, Technician)
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: Danh sách phẳng kèm độ sâu (depth = 1 là con trực tiếp)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  message: {type: string}
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: integer}
+                        parent_id: {type: integer, nullable: true}
+                        asset_code: {type: string}
+                        name: {type: string}
+                        status: {type: string}
+                        depth: {type: integer}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /assets/{id}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    get:
+      tags: [Assets]
+      summary: Chi tiết tài sản (Admin, Technician)
+      responses:
+        '200':
+          description: Thành công
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Assets]
+      summary: Sửa tài sản (chỉ Admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetInput'
+      responses:
+        '200':
+          description: Đã cập nhật
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Assets]
+      summary: Như PUT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetInput'
+      responses:
+        '200':
+          description: Đã cập nhật
+    delete:
+      tags: [Assets]
+      summary: Xóa tài sản (chỉ Admin)
+      responses:
+        '200':
+          description: Đã xóa
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Tài sản đã có lịch sử bàn giao, bảo trì hoặc phiếu hỗ trợ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    cronKey:
+      type: apiKey
+      in: header
+      name: X-Cron-Key
+  responses:
+    Unauthorized:
+      description: Thiếu, sai hoặc hết hạn token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    Forbidden:
+      description: Không đủ quyền
+    NotFound:
+      description: Không tìm thấy tài nguyên
+    ValidationError:
+      description: Dữ liệu không hợp lệ
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: {type: string}
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: {type: string}
+    TooManyRequests:
+      description: Vượt giới hạn tần suất
+  schemas:
+    Message:
+      type: object
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string}
+    User:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        email: {type: string}
+        role: {type: string, enum: [Admin, Technician, Employee]}
+    LoginResponse:
+      type: object
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        data:
+          type: object
+          properties:
+            token: {type: string}
+            token_type: {type: string, example: Bearer}
+            expires_at: {type: string, format: date-time}
+            user: {$ref: '#/components/schemas/User'}
+    TicketStatus:
+      type: string
+      enum: [open, assigned, in_progress, waiting_user, resolved, closed, cancelled]
+    TicketPriority:
+      type: string
+      enum: [low, medium, high, urgent]
+    AssetStatus:
+      type: string
+      enum: [available, in_use, maintenance, retired]
+    TicketCreate:
+      type: object
+      required: [category_id, title, description, priority]
+      properties:
+        category_id: {type: integer}
+        asset_id: {type: integer, nullable: true}
+        title: {type: string, maxLength: 200}
+        description: {type: string, maxLength: 10000}
+        priority: {$ref: '#/components/schemas/TicketPriority'}
+    TicketUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: {$ref: '#/components/schemas/TicketStatus'}
+        assigned_to:
+          type: integer
+          nullable: true
+          description: Chỉ Admin được gửi; phải là Technician đang hoạt động
+    Ticket:
+      type: object
+      properties:
+        id: {type: integer}
+        ticket_code: {type: string, example: HD-261031-A1B2C3}
+        title: {type: string}
+        description: {type: string}
+        priority: {$ref: '#/components/schemas/TicketPriority'}
+        priority_label: {type: string}
+        status: {$ref: '#/components/schemas/TicketStatus'}
+        status_label: {type: string}
+        sla:
+          type: object
+          description: Cam kết SLA tính theo giờ làm việc
+          properties:
+            state: {type: string, enum: [none, running, paused, met, breached]}
+            due_at: {type: string, format: date-time, nullable: true}
+            remaining_business_minutes: {type: integer, nullable: true}
+        resolved_at: {type: string, format: date-time, nullable: true}
+        closed_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    TicketEnvelope:
+      type: object
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        data: {$ref: '#/components/schemas/Ticket'}
+    TicketList:
+      type: object
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/Ticket'}
+        links: {type: object}
+        meta: {type: object}
+    AssetInput:
+      type: object
+      required: [asset_code, name, category_id, status]
+      properties:
+        asset_code: {type: string, maxLength: 50}
+        name: {type: string, maxLength: 150}
+        category_id: {type: integer}
+        serial_number: {type: string, maxLength: 100, nullable: true}
+        brand: {type: string, maxLength: 100, nullable: true}
+        model: {type: string, maxLength: 100, nullable: true}
+        purchase_date: {type: string, format: date, nullable: true}
+        purchase_price: {type: number, minimum: 0, nullable: true}
+        status: {$ref: '#/components/schemas/AssetStatus'}
+        description: {type: string, maxLength: 5000, nullable: true}

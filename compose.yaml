@@ -1,0 +1,46 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: itam_app
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+      - vendor_data:/var/www/html/vendor   # MỚI: vendor nằm trong volume của Docker, không đi qua ổ chia sẻ
+    ports:
+      - "8000:8000"
+    # Cấu hình ứng dụng (APP_*, DB_*...) nằm trong .env (tạo từ .env.example lần đầu).
+    # Không đặt APP_ENV/DB_* ở đây: biến môi trường thật của container sẽ đè phpunit.xml,
+    # làm test chạy ở môi trường "local" (lỗi 419) và có thể dùng nhầm database MySQL thật.
+    environment:
+      PHP_CLI_SERVER_WORKERS: 4            # MỚI: xử lý nhiều request song song
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.4
+    container_name: itam_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: itam_helpdesk
+      MYSQL_USER: ${DB_USERNAME:-itam}
+      # Mật khẩu đọc từ file .env (tạo từ .env.example). Không ghi giá trị thật vào repository.
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Hãy chạy 'cp .env.example .env' và đặt DB_PASSWORD trong .env}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Hãy đặt DB_ROOT_PASSWORD trong .env}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  mysql_data:
+  vendor_data:                             # MỚI

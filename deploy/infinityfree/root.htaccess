@@ -1,0 +1,19 @@
+# Đặt tệp này tên ".htaccess" ở thư mục htdocs khi tải TOÀN BỘ dự án vào htdocs (hosting không cho trỏ thư mục gốc web vào public/).
+# Mọi yêu cầu được chuyển vào public/, nên các tệp ở ngoài public (.env, storage, vendor, app...) không thể truy cập qua web.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Bắt buộc HTTPS (bật chứng thư số miễn phí trong bảng điều khiển trước)
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    RewriteRule ^$ public/ [L]
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# Chặn trực tiếp các tệp nhạy cảm nếu quy tắc trên bị tắt
+<FilesMatch "^(\.env.*|composer\.(json|lock)|artisan|phpunit.*\.xml|.*\.sql)$">
+    Require all denied
+</FilesMatch>
